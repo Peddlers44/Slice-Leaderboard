@@ -150,7 +150,7 @@ async def add_cmd(ctx: commands.Context):
     member: discord.Member = ctx.author
     display = name_for(member, member.name)
     new_count = await asyncio.to_thread(_add_count, guild.id, member.id, 1, display)
-    await ctx.reply(f"✅ Order complete, you now have **{new_count}** orders.", mention_author=False)
+    await ctx.reply(f"✅ Order complete, you now have **{new_count}** orders completed.", mention_author=False)
 
 
 @bot.command(name="leaderboard", aliases=["lb", "top"])
