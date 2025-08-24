@@ -17,6 +17,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy import create_engine
 
+# (Optional) load .env locally if available
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    pass
+
 # ================== CONFIG ==================
 BOT_TOKEN = os.getenv("BOT_TOKEN")  # required
 DATABASE_URL = os.getenv("DATABASE_URL")  # Render provides this automatically if you add Postgres
@@ -25,7 +32,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")  # Render provides this automatically i
 if not DATABASE_URL:
     DATABASE_URL = "sqlite:///leaderboard.db"
 
-# Render Postgres fix
+# Render Postgres fix (psycopg2 dialect)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 elif DATABASE_URL.startswith("postgresql://") and "+psycopg2" not in DATABASE_URL:
@@ -134,6 +141,27 @@ def name_for(member: Optional[discord.Member], fallback: str) -> str:
     return fallback or "Unknown"
 
 
+# ---------- Role-based checks ----------
+def _member_has_any_roles(member: discord.Member, role_names: List[str]) -> bool:
+    wanted = {n.lower() for n in role_names}
+    current = {r.name.lower() for r in member.roles}
+    return not current.isdisjoint(wanted)
+
+
+def has_any_named_roles(*role_names: str):
+    """Allow command only if user has at least one of the given role names."""
+    async def predicate(ctx: commands.Context):
+        if ctx.guild is None or not isinstance(ctx.author, discord.Member):
+            await ctx.reply("This command can only be used in a server.", mention_author=False)
+            return False
+        if not _member_has_any_roles(ctx.author, list(role_names)):
+            pretty = " or ".join(role_names)
+            await ctx.reply(f"You need the **{pretty}** role to use this command.", mention_author=False)
+            return False
+        return True
+    return commands.check(predicate)
+
+
 @bot.event
 async def on_ready():
     init_db()
@@ -142,6 +170,7 @@ async def on_ready():
 
 
 @bot.command(name="add")
+@has_any_named_roles("Chef")  # Require Chef role
 async def add_cmd(ctx: commands.Context):
     guild = ctx.guild
     if guild is None:
@@ -174,18 +203,8 @@ async def leaderboard_cmd(ctx: commands.Context):
     await ctx.reply(embed=embed, mention_author=False)
 
 
-def has_manage_guild():
-    async def predicate(ctx: commands.Context):
-        perms = ctx.author.guild_permissions if isinstance(ctx.author, discord.Member) else None
-        if not perms or not perms.manage_guild:
-            await ctx.reply("You need **Manage Server** permission for this command.", mention_author=False)
-            return False
-        return True
-    return commands.check(predicate)
-
-
 @bot.command(name="remove")
-@has_manage_guild()
+@has_any_named_roles("Head Chef", "Owner")  # only Head Chef or Owner
 async def remove_cmd(ctx: commands.Context, user: Optional[discord.Member] = None):
     if ctx.guild is None:
         return await ctx.reply("This command can only be used in a server.", mention_author=False)
@@ -200,7 +219,7 @@ async def remove_cmd(ctx: commands.Context, user: Optional[discord.Member] = Non
 
 
 @bot.command(name="set")
-@has_manage_guild()
+@has_any_named_roles("Head Chef", "Owner")  # only Head Chef or Owner
 async def set_cmd(ctx: commands.Context, user: Optional[discord.Member] = None, amount: Optional[int] = None):
     if ctx.guild is None:
         return await ctx.reply("This command can only be used in a server.", mention_author=False)
@@ -214,7 +233,7 @@ async def set_cmd(ctx: commands.Context, user: Optional[discord.Member] = None, 
 
 
 @bot.command(name="resetall")
-@has_manage_guild()
+@has_any_named_roles("Head Chef", "Owner")  # only Head Chef or Owner
 async def resetall_cmd(ctx: commands.Context):
     if ctx.guild is None:
         return await ctx.reply("This command can only be used in a server.", mention_author=False)
